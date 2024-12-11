@@ -1,0 +1,104 @@
+#include <Wire.h>
+#include <ESP8266WiFi.h>
+#include <LiquidCrystal_I2C.h>
+#include <WiFiUdp.h> // Send data to UDP host over a wireless network 
+#include <NTPClient.h> // for connecting to a time server and keep it synchronized 
+
+// LCD Setup
+LiquidCrystal_I2C lcd(0x27, 16, 2); // Adjust I2C address if needed
+
+// WiFi Setup
+const char* ssid = "yourSSID";
+const char* password = "yourPASSWORD";
+
+// Time Zones (in seconds)
+const int TIME_ZONES[] = {2 * 3600, 0, -5 * 3600, -8 * 3600, 11 * 3600, 9 * 3600}; 
+const char* LOCATIONS[] = {"Cape Town", "London", "New York", "Los Angeles", "Sydney", "Tokyo"};
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 0); // UTC Time from NTP server
+
+// Buttons
+#define BUTTON_RIGHT D5
+#define BUTTON_LEFT D6
+#define BUTTON_RESET D7
+
+int currentCity = 0; // Default: Cape Town
+
+void setup() {
+  // Initialize Serial and LCD
+  Serial.begin(115200);
+  Wire.begin(D2, D1);
+  lcd.begin(16, 2);
+  lcd.backlight();
+
+  // Connect to WiFi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Connected to WiFi");
+  
+  timeClient.begin();
+  
+  // Configure buttons as inputs
+  pinMode(BUTTON_RIGHT, INPUT_PULLUP);
+  pinMode(BUTTON_LEFT, INPUT_PULLUP);
+  pinMode(BUTTON_RESET, INPUT_PULLUP);
+  
+  lcd.setCursor(0, 0);
+  lcd.print("Clock Initialized");
+  delay(2000);
+}
+
+void loop() {
+  timeClient.update();
+
+  // Handle Button Presses
+  if (digitalRead(BUTTON_RIGHT) == LOW) {
+    currentCity = (currentCity + 1) % 6;
+    delay(300); // Debounce
+  }
+  if (digitalRead(BUTTON_LEFT) == LOW) {
+    currentCity = (currentCity - 1 + 6) % 6; // Wrap around
+    delay(300); // Debounce
+  }
+  if (digitalRead(BUTTON_RESET) == LOW) {
+    currentCity = 0; // Reset to Cape Town
+    delay(300); // Debounce
+  }
+
+  // Calculate Local Time
+  long utcTime = timeClient.getEpochTime();
+  long localTime = utcTime + TIME_ZONES[currentCity];
+
+  // Display Time and Location
+  displayTime(localTime, LOCATIONS[currentCity]);
+}
+
+void displayTime(long timeStamp, const char* location) {
+  static String lastTime = ""; // Store the last displayed time to reduce updates
+
+  // Calculate time components
+  int hours = (timeStamp % 86400L) / 3600;  // Hours
+  int minutes = (timeStamp % 3600) / 60;    // Minutes
+  int seconds = timeStamp % 60;            // Seconds
+
+  // Format time as a string
+  String currentTime = (hours < 10 ? "0" : "") + String(hours) + ":" +
+                       (minutes < 10 ? "0" : "") + String(minutes) + ":" +
+                       (seconds < 10 ? "0" : "") + String(seconds);
+
+  // Update location only when it changes
+  lcd.setCursor(0, 0);
+  lcd.print(location);
+  for (int i = strlen(location); i < 16; i++) lcd.print(" "); // Clear trailing characters
+
+  // Update time only if it changes
+  if (currentTime != lastTime) {
+    lcd.setCursor(0, 1);
+    lcd.print(currentTime);
+    lastTime = currentTime;
+  }
+}
